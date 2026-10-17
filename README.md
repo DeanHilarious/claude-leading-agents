@@ -72,6 +72,12 @@ mkdir -p ~/.claude/skills && cp -r claude-leading-agents/skills/claude-leading-a
 
 `dashboard/` 是一个零依赖的本地网站，读取 `~/.codex-runs` 和代理的会话日志，显示 Claude 派了哪些活、谁在做、返工几轮、花了多少 token。只读、只监听 127.0.0.1。
 
+![任务详情：Claude 把子任务派给 Codex 和 CodeBuddy，返工以回环标出](docs/screenshots/run.png)
+
+| 总览 | 子任务抽屉 |
+|---|---|
+| ![总览：进行中、待验收与已结束的任务](docs/screenshots/overview.png) | ![子任务抽屉：规格、交付报告与返工单并排对照](docs/screenshots/drawer.png) |
+
 ```bash
 node dashboard/server.js            # 你自己的任务 → http://127.0.0.1:4177
 node dashboard/server.js --demo     # 演示数据

@@ -66,7 +66,7 @@ function body(run, onOpenSub, onOpenFile) {
     head(run) +
     renderCanvas(run.subtasks) +
     '<div style="height:8px"></div>' +
-    renderGantt(run.subtasks, run.start) +
+    renderGantt(run.subtasks, run.start, run.generatedAt) +
     files(run) +
     '</div>';
 }

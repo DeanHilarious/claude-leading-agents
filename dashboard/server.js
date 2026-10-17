@@ -31,7 +31,9 @@ function parseArgs(argv) {
 
 function createApp(cfg) {
   const nowStr = cfg.demo ? DEMO_NOW : (cfg.now || new Date().toISOString());
-  const nowMs = Date.parse(nowStr);
+  const fixedNow = Date.parse(nowStr);
+  // 演示和测试用固定时间；真实运行必须取当前时间，否则「超时中断」之类的判断会随服务运行变旧
+  const getNow = () => (cfg.demo || cfg.now ? fixedNow : Date.now());
   const offsetMin = offsetMinutesOf(nowStr);
   const runsDir = cfg.runs;
   const codexHome = cfg.codexHome;
@@ -70,7 +72,8 @@ function createApp(cfg) {
 
   function scanOne(runId) {
     const dir = path.join(runsDir, runId);
-    const sig = runSig(dir);
+    // 状态含「多久没更新」的判断，所以缓存键里带一个 30 秒的时间桶
+    const sig = runSig(dir) + '|' + Math.floor(getNow() / 30000);
     const hit = cache.get(runId);
     if (hit && hit.sig === sig) return hit.data;
     const data = scanRunCached(dir, runId);
@@ -93,11 +96,11 @@ function createApp(cfg) {
     }
     const statFile = cfg.demo ? buildStatFile(dir, subIds, offsetMin) : null;
     const procs = getProcs(runId, subIds);
-    const data = runs.scanRun(dir, { now: nowMs, offsetMin, codexIndex, procs, statFile });
+    const data = runs.scanRun(dir, { now: getNow(), offsetMin, codexIndex, procs, statFile });
     ensureIndex(data);
     if (statFile) {
       // 重建索引后 token 可能变化，重扫一次
-      const again = runs.scanRun(dir, { now: nowMs, offsetMin, codexIndex, procs, statFile });
+      const again = runs.scanRun(dir, { now: getNow(), offsetMin, codexIndex, procs, statFile });
       return again;
     }
     return data;
@@ -193,11 +196,12 @@ function createApp(cfg) {
       const runningAgents = cfg.demo
         ? list.reduce((a, r) => a + r.subtasks.filter((s) => s.status === 'running').length, 0)
         : procsCache.list.length;
-      return sendJson(res, 200, agg.overview(list, { now: nowMs, offsetMin, demo: cfg.demo, quota: quota(), runningAgents }));
+      return sendJson(res, 200, agg.overview(list, { now: getNow(), offsetMin, demo: cfg.demo, quota: quota(), runningAgents }));
     }
     if (parts[1] === 'runs' && parts[2] && !parts[3]) {
       if (!listRunIds().includes(parts[2])) return sendJson(res, 404, { error: 'not found' });
       const json = agg.runToJson(scanOne(parts[2]), offsetMin);
+      json.generatedAt = new Date(getNow()).toISOString();
       // 演示数据放在仓库里，显示成标准位置，免得截图暴露本机目录结构
       if (cfg.demo) json.dir = `~/.codex-runs/${json.id}`;
       return sendJson(res, 200, json);
@@ -212,7 +216,7 @@ function createApp(cfg) {
     if (parts[1] === 'bill') {
       const range = url.searchParams.get('range') || '7d';
       const list = listRunIds().map(scanOne);
-      return sendJson(res, 200, agg.bill(list, range, { now: nowMs, offsetMin, quota: quota() }));
+      return sendJson(res, 200, agg.bill(list, range, { now: getNow(), offsetMin, quota: quota() }));
     }
     return sendJson(res, 404, { error: 'not found' });
   }

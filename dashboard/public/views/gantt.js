@@ -5,20 +5,22 @@ import { fmtClock, pad, fmtDuration } from '../components.js';
 const LABEL_W = 160;
 const AGENT_COLOR = { codex: 'var(--codex)', codebuddy: 'var(--codebuddy)', unknown: 'var(--text-3)' };
 
-export function renderGantt(subtasks, runStart) {
+export function renderGantt(subtasks, runStart, nowIso) {
+  // 用服务端的「现在」，演示数据才不会被真实时钟拉长
+  const clock = nowIso && !isNaN(Date.parse(nowIso)) ? Date.parse(nowIso) : Date.now();
   const list = (subtasks || []).filter(st => st.start);
   if (!list.length) return '';
   let min = Infinity, max = -Infinity;
   for (const st of list) {
     const s = new Date(st.start).getTime();
-    let e = st.end ? new Date(st.end).getTime() : Date.now();
+    let e = st.end ? new Date(st.end).getTime() : clock;
     if (isNaN(s)) continue;
     if (e <= s) e = s + 60000;
     min = Math.min(min, s); max = Math.max(max, e);
   }
   if (!isFinite(min) || !isFinite(max)) return '';
   if (runStart && !isNaN(new Date(runStart))) min = Math.min(min, new Date(runStart).getTime());
-  const now = Date.now();
+  const now = clock;
   if (now > max) max = now;
   const span = Math.max(max - min, 60000);
   const W = 100; // 百分比刻度
@@ -50,7 +52,7 @@ export function renderGantt(subtasks, runStart) {
     for (const r of st.rounds || []) {
       if (!r.start) continue;
       const s = new Date(r.start).getTime();
-      let e = r.end ? new Date(r.end).getTime() : Math.max(Date.now(), s + 60000);
+      let e = r.end ? new Date(r.end).getTime() : Math.max(clock, s + 60000);
       if (isNaN(s)) continue;
       if (e <= s) e = s + 60000;
       const left = pct(s), right = pct(e);
@@ -59,7 +61,7 @@ export function renderGantt(subtasks, runStart) {
       segs += '<span class="gantt-seg' + (isRw ? ' rw' : '') + '" style="left:' + left.toFixed(2) + '%;width:' +
         Math.max(right - left, 0.5).toFixed(2) + '%;background:' + color + '" title="' + escapeHtml(tip) + '" tabindex="0" role="img" aria-label="' + escapeHtml(tip) + '"></span>';
     }
-    const nowPct = pct(Date.now());
+    const nowPct = pct(clock);
     rows += '<div class="gantt-row">' +
       '<span class="g-label" title="' + escapeHtml(st.title || st.id) + '">' + escapeHtml(st.title || st.id) + '</span>' +
       '<div class="gantt-track">' + segs +

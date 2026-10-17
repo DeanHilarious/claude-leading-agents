@@ -58,3 +58,7 @@ node --test 'dashboard/test/*.test.js'
 - **只听 127.0.0.1**：不对外网开放；请求的 `Host` 不是 `localhost:<port>` / `127.0.0.1:<port>` 时返回 403（防 DNS 重绑定）。
 - **不读凭证**：路径中含 `auth`、`credential`、`token.json`、`.env` 的文件一律跳过。
 - 文件接口只允许任务文件夹的直接子文件，文件名必须匹配 `^[\w.\-]+$`，超过 2MB 只返回最后 2MB。
+
+## 截图
+
+先启动演示服务，再运行 `bash dashboard/scripts/screenshot.sh` 重新生成 `docs/screenshots/` 下的截图。

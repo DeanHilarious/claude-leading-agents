@@ -159,3 +159,8 @@ test('maskPath：主目录前缀替换为 ~，其余原样', async () => {
   assert.equal(maskPath('/tmp/other'), '/tmp/other');
   assert.equal(maskPath(os.homedir()), '~');
 });
+
+test('run 详情带服务端时钟（演示模式固定为 22:10）', async () => {
+  const j = JSON.parse((await get('/api/runs/todo-app')).body);
+  assert.equal(new Date(j.generatedAt).getTime(), new Date('2026-10-17T22:10:00+08:00').getTime());
+});
