@@ -28,6 +28,15 @@ Claude 的 token 最贵，而 Claude 每多一轮工具调用都要把整段上�
 - 运行时长常超 10 分钟：`run_in_background: true` 启动，等完成通知，不要轮询。
 - `RUN=~/.codex-runs/<任务短名>` 放规格、日志、结果；`S=~/.claude/skills/claude-leading-agents`。
 
+## 事件记录（给指挥台用）
+每次派活、收到交付、验收结论时，往 `$RUN/events.jsonl` 追加一行（一条 echo，不要读回）：
+```
+echo '{"t":"'$(date +%Y-%m-%dT%H:%M:%S%z)'","sub":"<子任务>","event":"<事件>","agent":"codex","model":"<模型>","effort":"<强度>","round":1}' >> $RUN/events.jsonl
+```
+- `event`：`dispatched`（派出，含返工派出，round+1）、`delivered`（代理交回）、`rejected`（打回，可加 `"note":"原因"`）、`accepted`（通过）、`abandoned`（放弃）。`agent/model/effort` 只在 dispatched 时写。
+- 文件统一用子任务名命名：`spec-<子任务>.md`、`result-<子任务>.md`、`log-<子任务>.txt`、`fix-<子任务>-N.md`，返工轮的报告和日志加 `-rN`。
+- 本地网页 `dashboard/`（`node dashboard/server.js`）会读这些文件，把派活和执行过程画出来。
+
 ## 1. 配比表
 用户点名了代理/模型/强度就照办；否则：
 
@@ -71,8 +80,8 @@ bash $S/check.sh <dir> "<测试命令>" $RUN/result-*.md $RUN/cb-*.md     # 非 
 ## 5. 返工
 问题写进 `$RUN/fix-<子任务>-N.md`（文件:行、失败输出、违背的验收条目，不贴整段代码），接回原会话：
 ```
-cd <dir> && codex exec resume --skip-git-repo-check <session-id> -c sandbox_mode='"workspace-write"' -m <模型> -c model_reasoning_effort='"<强度>"' -o $RUN/result-<子任务>.md - < $RUN/fix-<子任务>-N.md > $RUN/log-<子任务>-N.txt 2>&1
-CB_RESUME=<session-id> bash $S/cb.sh <dir> $RUN/fix-<子任务>-N.md $RUN/cb-<子任务>-N <模型> <强度>
+cd <dir> && codex exec resume --skip-git-repo-check <session-id> -c sandbox_mode='"workspace-write"' -m <模型> -c model_reasoning_effort='"<强度>"' -o $RUN/result-<子任务>-rN.md - < $RUN/fix-<子任务>-N.md > $RUN/log-<子任务>-rN.txt 2>&1
+CB_RESUME=<session-id> bash $S/cb.sh <dir> $RUN/fix-<子任务>-N.md $RUN/cb-<子任务>-rN <模型> <强度>
 ```
 - `resume` 不认 `-s`，沙箱要用 `-c sandbox_mode=...` 传；非 git 目录必须带 `--skip-git-repo-check`，否则 Codex 会直接退出、什么都不改。
 
