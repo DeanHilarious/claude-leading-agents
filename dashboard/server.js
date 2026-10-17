@@ -316,6 +316,13 @@ function main() {
     now: args.now,
   };
   const app = createApp(cfg);
+  app.server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`端口 ${args.port} 已被占用：指挥台可能已经在运行了，直接打开 http://127.0.0.1:${args.port} 看看。\n要同时再开一个，换个端口：node dashboard/server.js --port ${args.port + 1}`);
+      process.exit(1);
+    }
+    throw err;
+  });
   app.server.listen(args.port, '127.0.0.1', () => {
     console.log('指挥台已启动 → http://127.0.0.1:' + args.port);
   });
