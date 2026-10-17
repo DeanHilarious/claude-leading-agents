@@ -1,0 +1,7 @@
+OpenAI Codex v0.9.4
+model: gpt-6.1-sol
+reasoning effort: medium
+session id: 66666666-6666-6666-6666-666666666666
+workdir: /home/demo/landing-page
+
+实现首屏布局与渐变背景。

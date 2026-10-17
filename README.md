@@ -68,6 +68,17 @@ mkdir -p ~/.claude/skills && cp -r claude-leading-agents/skills/claude-leading-a
 - CodeBuddy 的积分余额命令行查不到，账单以 `tokens.py` 统计的 token 为准。
 - 运行记录（规格、日志、结果、返工单）默认放在 `~/.codex-runs/<任务名>/`。
 
+## 指挥台：把协作过程画出来
+
+`dashboard/` 是一个零依赖的本地网站，读取 `~/.codex-runs` 和代理的会话日志，显示 Claude 派了哪些活、谁在做、返工几轮、花了多少 token。只读、只监听 127.0.0.1。
+
+```bash
+node dashboard/server.js            # 你自己的任务 → http://127.0.0.1:4177
+node dashboard/server.js --demo     # 演示数据
+```
+
+详见 [dashboard/README.md](dashboard/README.md)，界面设计见 [dashboard/DESIGN.md](dashboard/DESIGN.md)。
+
 ## 许可
 
 [MIT](LICENSE)

@@ -1,0 +1,6 @@
+{"t":"2026-10-16T20:00:00+08:00","sub":"hero","event":"dispatched","agent":"codex","model":"gpt-6.1-sol","effort":"medium","round":1}
+{"t":"2026-10-16T21:00:00+08:00","sub":"copy","event":"dispatched","agent":"codebuddy","model":"glm-5.3","effort":"high","round":1}
+{"t":"2026-10-16T22:00:00+08:00","sub":"hero","event":"delivered","round":1}
+{"t":"2026-10-16T22:30:00+08:00","sub":"copy","event":"delivered","round":1}
+{"t":"2026-10-16T23:00:00+08:00","sub":"hero","event":"accepted","round":1}
+{"t":"2026-10-16T23:10:00+08:00","sub":"copy","event":"accepted","round":1}

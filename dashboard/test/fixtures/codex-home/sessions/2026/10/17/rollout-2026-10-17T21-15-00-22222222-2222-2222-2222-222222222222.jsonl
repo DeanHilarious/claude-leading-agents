@@ -1,0 +1,6 @@
+{"timestamp":"2026-10-17T21:16:00+08:00","type":"session_meta","payload":{"session_id":"22222222-2222-2222-2222-222222222222","cwd":"/home/demo/todo-app"}}
+{"timestamp":"2026-10-17T21:17:00+08:00","type":"response_item","payload":{"type":"custom_tool_call","name":"shell","input":"{\"cmd\":\"ls src\"}"}}
+{"timestamp":"2026-10-17T21:20:00+08:00","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"cmd\":\"sed -n '1,40p' src/server.js\"}"}}
+{"timestamp":"2026-10-17T21:30:00+08:00","type":"event_msg","payload":{"type":"agent_message","message":"API 四个接口已实现，测试 4 通过 2 失败。"}}
+{"timestamp":"2026-10-17T21:39:00+08:00","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":80000,"cached_input_tokens":20000,"output_tokens":15000,"total_tokens":115000}}}}
+{"timestamp":"2026-10-17T21:40:00+08:00","type":"event_msg","payload":{"type":"task_complete"}}

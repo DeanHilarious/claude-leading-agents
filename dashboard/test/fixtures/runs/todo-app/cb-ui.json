@@ -1,0 +1,5 @@
+[
+  {"type": "system", "subtype": "init", "session_id": "demo-ui-001", "cwd": "/home/demo/todo-app"},
+  {"type": "assistant", "message": {"role": "assistant", "content": "开始实现界面"}},
+  {"type": "result", "subtype": "success", "usage": {"input_tokens": 518000, "output_tokens": 22800}}
+]

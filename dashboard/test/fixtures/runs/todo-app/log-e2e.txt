@@ -1,0 +1,7 @@
+OpenAI Codex v0.9.4
+model: gpt-6-astra
+reasoning effort: high
+session id: 33333333-3333-3333-3333-333333333333
+workdir: /home/demo/todo-app
+
+开始编写端到端测试。
