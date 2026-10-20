@@ -48,6 +48,7 @@ function runToJson(run, offsetMin) {
   const tokensDetail = sumTokens(run.subtasks.map((s) => s.tokens));
   return {
     id: run.id,
+    machine: run.machine || null,
     title: run.title,
     status: run.status,
     start: toIso(run.startMs, offsetMin),
@@ -76,6 +77,7 @@ function byAgent(subtasks) {
 function overviewItem(run, offsetMin) {
   return {
     id: run.id,
+    machine: run.machine || null,
     title: run.title,
     status: run.status,
     start: toIso(run.startMs, offsetMin),
@@ -103,6 +105,7 @@ function overview(runs, o) {
   return {
     generatedAt: toIso(now, o.offsetMin),
     demo: !!o.demo,
+    remote: !!o.remote,
     quota: o.quota || null,
     stats: {
       activeRuns: runs.filter((r) => r.status === 'running').length,

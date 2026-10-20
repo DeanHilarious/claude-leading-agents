@@ -1,5 +1,6 @@
 'use strict';
-// 指挥台 HTTP 服务。零依赖，只读，只听 127.0.0.1。
+// 指挥台 HTTP 服务。零依赖。
+// 本地模式：只读，只听 127.0.0.1；远程模式（--data）：登录 + 接收接口 + 多机器数据源。
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -7,12 +8,16 @@ const os = require('os');
 const { URL } = require('url');
 const runs = require('./lib/runs');
 const codex = require('./lib/codex');
-const cbLib = require('./lib/codebuddy');
 const psLib = require('./lib/ps');
-const agg = require('./lib/aggregate');
 const { buildStatFile } = require('./lib/demo');
-const { isSafeFileName, isCredentialName, toIso, offsetMinutesOf } = require('./lib/util');
+const { offsetMinutesOf } = require('./lib/util');
 const { matchSub } = require('./lib/naming');
+const remoteLib = require('./lib/remote');
+const { createAuth, loadSessionSecret } = require('./lib/auth');
+const { createIngest } = require('./lib/ingest');
+const { createApi } = require('./lib/api');
+const watchLib = require('./lib/watch');
+const staticLib = require('./lib/static');
 
 const DEMO_NOW = '2026-10-17T22:10:00+08:00';
 
@@ -25,26 +30,49 @@ function parseArgs(argv) {
     else if (a === '--codex-home') out.codexHome = argv[++i];
     else if (a === '--demo') out.demo = true;
     else if (a === '--now') out.now = argv[++i];
+    else if (a === '--data') out.data = argv[++i];
+    else if (a === '--allowed-host') out.allowedHost = argv[++i];
+    else if (a === '--listen-host') out.listenHost = argv[++i];
   }
   return out;
 }
 
 function createApp(cfg) {
+  const remote = !!cfg.data;
   const nowStr = cfg.demo ? DEMO_NOW : (cfg.now || new Date().toISOString());
   const fixedNow = Date.parse(nowStr);
   // 演示和测试用固定时间；真实运行必须取当前时间，否则「超时中断」之类的判断会随服务运行变旧
   const getNow = () => (cfg.demo || cfg.now ? fixedNow : Date.now());
   const offsetMin = offsetMinutesOf(nowStr);
   const runsDir = cfg.runs;
-  const codexHome = cfg.codexHome;
-  const cache = new Map(); // runId -> {sig, data}
-  let codexIndex = codex.buildCodexIndex(codexHome);
+  const cache = new Map(); // runKey -> {sig, data}
+  let codexIndex = remote ? null : codex.buildCodexIndex(cfg.codexHome);
   let indexRebuilt = false;
+  const publicDir = path.join(__dirname, 'public');
 
-  function listRunIds() {
+  const auth = remote ? createAuth({
+    password: cfg.password,
+    token: cfg.token,
+    secret: cfg.secret || loadSessionSecret(cfg.data),
+  }) : null;
+
+  // 任务来源：本地单个 runsDir；远程遍历 DATA/<machine>/runs/*
+  function listEntries() {
+    if (remote) return remoteLib.listRunEntries(cfg.data);
     let ents;
     try { ents = fs.readdirSync(runsDir, { withFileTypes: true }); } catch (e) { return []; }
-    return ents.filter((e) => e.isDirectory() && !e.name.startsWith('.')).map((e) => e.name).sort();
+    return ents.filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => ({ machine: null, name: e.name, dir: path.join(runsDir, e.name), key: e.name }))
+      .sort((a, b) => a.key.localeCompare(b.key));
+  }
+
+  function findEntry(key) {
+    return listEntries().find((e) => e.key === key);
+  }
+
+  function indexFor(entry) {
+    if (remote) return codex.buildRemoteCodexIndex(path.join(cfg.data, entry.machine));
+    return codexIndex;
   }
 
   function runSig(runDir) {
@@ -61,27 +89,21 @@ function createApp(cfg) {
     return sig;
   }
 
-  function ensureIndex(run) {
-    // 有会话找不到索引时，重建一次
-    const missing = run.subtasks.some((s) => s.agent === 'codex' && s.sessionIds.some((id) => !codexIndex.byId[id.toLowerCase()]));
-    if (missing && !indexRebuilt) {
-      codexIndex = codex.buildCodexIndex(codexHome);
-      indexRebuilt = true;
-    }
-  }
-
-  function scanOne(runId) {
-    const dir = path.join(runsDir, runId);
+  function scanOne(entry) {
     // 状态含「多久没更新」的判断，所以缓存键里带一个 30 秒的时间桶
-    const sig = runSig(dir) + '|' + Math.floor(getNow() / 30000);
-    const hit = cache.get(runId);
+    const sig = runSig(entry.dir) + '|' + Math.floor(getNow() / 30000);
+    const hit = cache.get(entry.key);
     if (hit && hit.sig === sig) return hit.data;
-    const data = scanRunCached(dir, runId);
-    cache.set(runId, { sig, data });
+    const data = scanRunCached(entry);
+    data.machine = entry.machine;
+    data.id = entry.key; // 多机器同名时展示为 <run>@<machine>；本地模式 key 即目录名
+    cache.set(entry.key, { sig, data });
     return data;
   }
 
-  function scanRunCached(dir, runId) {
+  function scanRunCached(entry) {
+    const dir = entry.dir;
+    const idx = indexFor(entry);
     // 先粗扫一次拿子任务全集（demo statFile 需要）
     const subIds = [];
     if (fs.existsSync(path.join(dir, 'events.jsonl'))) {
@@ -95,20 +117,30 @@ function createApp(cfg) {
       }
     }
     const statFile = cfg.demo ? buildStatFile(dir, subIds, offsetMin) : null;
-    const procs = getProcs(runId, subIds);
-    const data = runs.scanRun(dir, { now: getNow(), offsetMin, codexIndex, procs, statFile });
+    const procs = getProcs(entry.name, subIds);
+    const opts = { now: getNow(), offsetMin, codexIndex: idx, procs, statFile };
+    const data = runs.scanRun(dir, opts);
     ensureIndex(data);
     if (statFile) {
       // 重建索引后 token 可能变化，重扫一次
-      const again = runs.scanRun(dir, { now: getNow(), offsetMin, codexIndex, procs, statFile });
-      return again;
+      return runs.scanRun(dir, opts);
     }
     return data;
   }
 
+  function ensureIndex(data) {
+    if (remote) return;
+    // 有会话找不到索引时，重建一次
+    const missing = data.subtasks.some((s) => s.agent === 'codex' && s.sessionIds.some((id) => !codexIndex.byId[id.toLowerCase()]));
+    if (missing && !indexRebuilt) {
+      codexIndex = codex.buildCodexIndex(cfg.codexHome);
+      indexRebuilt = true;
+    }
+  }
+
   let procsCache = { t: 0, list: [] };
   function getProcs(runId, subIds) {
-    if (cfg.demo) return new Set();
+    if (cfg.demo || remote) return new Set();
     const nowT = Date.now();
     if (nowT - procsCache.t > 5000) {
       procsCache = { t: nowT, list: psLib.listProcs(runsDir) };
@@ -123,142 +155,16 @@ function createApp(cfg) {
   }
 
   function quota() {
-    return codex.readQuota(codexIndex);
+    return remote ? codex.readRemoteQuota(cfg.data) : codex.readQuota(codexIndex);
   }
 
-  function sendJson(res, code, obj) {
-    const body = JSON.stringify(obj);
-    res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(body);
-  }
-
-  function sendText(res, code, text) {
-    res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(text);
-  }
-
-  const MIME = {
-    '.html': 'text/html; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.svg': 'image/svg+xml',
-    '.md': 'text/plain; charset=utf-8',
-  };
-
-  function handleFile(req, res, url, runId) {
-    const name = url.searchParams.get('name') || '';
-    if (!isSafeFileName(name) || isCredentialName(name)) return sendJson(res, 400, { error: 'bad name' });
-    const p = path.join(runsDir, runId, name);
-    let st;
-    try { st = fs.statSync(p); } catch (e) { return sendJson(res, 404, { error: 'not found' }); }
-    if (!st.isFile()) return sendJson(res, 400, { error: 'bad name' });
-    const MAX = 2 * 1024 * 1024;
-    let buf;
-    if (st.size > MAX) {
-      const fd = fs.openSync(p, 'r');
-      try {
-        buf = Buffer.alloc(MAX);
-        fs.readSync(fd, buf, 0, MAX, st.size - MAX);
-      } finally { fs.closeSync(fd); }
-    } else {
-      buf = fs.readFileSync(p);
-    }
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
-    res.end(buf);
-  }
-
-  function handleFeed(res, runId, subId) {
-    const run = scanOne(runId);
-    const sub = run.subtasks.find((s) => s.id === subId);
-    if (!sub) return sendJson(res, 404, { error: 'not found' });
-    const live = sub.status === 'running';
-    if (sub.agent === 'codebuddy') {
-      let summary = null;
-      const sumF = run.files.map((f) => f.name).find((f) => new RegExp('^sum-' + subId + '(?:-r\\d+)?\\.txt$').test(f));
-      if (sumF) {
-        const parsed = cbLib.parseSumLine(fs.readFileSync(path.join(run.dir, sumF), 'utf8'));
-        if (parsed) summary = { exit: parsed.exit, subtype: parsed.subtype, session: parsed.session, turns: parsed.turns, input: parsed.input, output: parsed.output, denials: parsed.denials };
-      }
-      return sendJson(res, 200, { agent: 'codebuddy', live, steps: [], summary });
-    }
-    // codex：取该子任务最新一个会话的 rollout
-    const id = sub.sessionIds[sub.sessionIds.length - 1];
-    const file = id ? codexIndex.byId[id.toLowerCase()] : null;
-    const steps = file ? codex.parseFeed(file) : [];
-    sendJson(res, 200, { agent: sub.agent, live, steps, summary: null });
-  }
-
-  function handleApi(req, res, url) {
-    const parts = url.pathname.split('/').filter(Boolean); // ['api', ...]
-    if (parts[1] === 'overview') {
-      const list = listRunIds().map(scanOne);
-      const runningAgents = cfg.demo
-        ? list.reduce((a, r) => a + r.subtasks.filter((s) => s.status === 'running').length, 0)
-        : procsCache.list.length;
-      return sendJson(res, 200, agg.overview(list, { now: getNow(), offsetMin, demo: cfg.demo, quota: quota(), runningAgents }));
-    }
-    if (parts[1] === 'runs' && parts[2] && !parts[3]) {
-      if (!listRunIds().includes(parts[2])) return sendJson(res, 404, { error: 'not found' });
-      const json = agg.runToJson(scanOne(parts[2]), offsetMin);
-      json.generatedAt = new Date(getNow()).toISOString();
-      // 演示数据放在仓库里，显示成标准位置，免得截图暴露本机目录结构
-      if (cfg.demo) json.dir = `~/.codex-runs/${json.id}`;
-      return sendJson(res, 200, json);
-    }
-    if (parts[1] === 'runs' && parts[2] && parts[3] === 'file') {
-      if (!listRunIds().includes(parts[2])) return sendJson(res, 404, { error: 'not found' });
-      return handleFile(req, res, url, parts[2]);
-    }
-    if (parts[1] === 'runs' && parts[2] && parts[3] === 'subtasks' && parts[4] && parts[5] === 'feed') {
-      return handleFeed(res, parts[2], decodeURIComponent(parts[4]));
-    }
-    if (parts[1] === 'bill') {
-      const range = url.searchParams.get('range') || '7d';
-      const list = listRunIds().map(scanOne);
-      return sendJson(res, 200, agg.bill(list, range, { now: getNow(), offsetMin, quota: quota() }));
-    }
-    return sendJson(res, 404, { error: 'not found' });
-  }
-
-  function handleStatic(res, url) {
-    const publicDir = path.join(__dirname, 'public');
-    let rel = url.pathname === '/' ? '/index.html' : url.pathname;
-    rel = rel.replace(/^\/+/, '');
-    if (rel.includes('..')) return sendText(res, 403, 'forbidden');
-    const p = path.join(publicDir, rel);
-    let st;
-    try { st = fs.statSync(p); } catch (e) {
-      if (url.pathname === '/') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end('<!doctype html><meta charset="utf-8"><title>指挥台</title><p>未找到前端文件（public/ 不存在）。API 见 /api/overview。</p>');
-      }
-      return sendText(res, 404, 'not found');
-    }
-    if (!st.isFile()) return sendText(res, 404, 'not found');
-    const ext = path.extname(p);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-    res.end(fs.readFileSync(p));
-  }
-
-  function handler(req, res) {
-    const url = new URL(req.url, 'http://x');
-    // 防 DNS 重绑定
-    const host = (req.headers.host || '').toLowerCase();
-    const port = cfg._listenPort || cfg.port;
-    if (host !== 'localhost:' + port && host !== '127.0.0.1:' + port) {
-      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end('{"error":"forbidden"}');
-    }
-    if (url.pathname.startsWith('/api/')) {
-      if (url.pathname === '/api/events') return handleSse(req, res);
-      return handleApi(req, res, url);
-    }
-    handleStatic(res, url);
-  }
+  const api = createApi({
+    cfg, offsetMin, getNow, listEntries, findEntry, scanOne, indexFor, quota,
+    procsCount: () => procsCache.list.length,
+  });
+  const sendJson = api.sendJson;
 
   let sseClients = new Set();
-  let watchTimer = null;
   function handleSse(req, res) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -276,45 +182,104 @@ function createApp(cfg) {
     for (const c of sseClients) { try { c.write(payload); } catch (e) { /* ignore */ } }
   }
 
-  let watcher = null;
-  function startWatch() {
-    try {
-      watcher = fs.watch(runsDir, { recursive: true }, () => {
-        clearTimeout(watchTimer);
-        watchTimer = setTimeout(() => {
-          const changed = [];
-          for (const id of listRunIds()) {
-            const dir = path.join(runsDir, id);
-            const sig = runSig(dir);
-            const hit = cache.get(id);
-            if (!hit || hit.sig !== sig) changed.push(id);
-          }
-          const oldQuota = JSON.stringify(quota());
-          for (const id of changed) scanOne(id); // 刷新缓存
-          const newQuota = JSON.stringify(quota());
-          if (changed.length) broadcast('change', { runs: changed });
-          if (oldQuota !== newQuota) broadcast('quota', { quota: quota() });
-        }, 300);
-      });
-    } catch (e) { /* watch 失败则静默，接口仍可用 */ }
+  const ingest = remote ? createIngest({
+    dataDir: cfg.data,
+    checkToken: auth.checkToken,
+    maxBytes: cfg.maxBytes != null ? cfg.maxBytes : (Number(process.env.DASHBOARD_MAX_BYTES) || 2 * 1024 ** 3),
+    onRunChange: (machine, run) => {
+      const e = listEntries().find((x) => x.machine === machine && x.name === run);
+      if (e) broadcast('change', { runs: [e.key] });
+    },
+    onMachineChange: (machine) => {
+      const ks = listEntries().filter((e) => e.machine === machine).map((e) => e.key);
+      if (ks.length) broadcast('change', { runs: ks });
+    },
+    onQuota: () => broadcast('quota', { quota: quota() }),
+  }) : null;
+
+  function handler(req, res) {
+    const url = new URL(req.url, 'http://x');
+    if (remote) {
+      // 安全响应头注入到所有响应（含 SSE / 接收接口）
+      const extra = remoteLib.securityHeaders(req.headers['x-forwarded-proto'] === 'https');
+      const orig = res.writeHead;
+      res.writeHead = function (code, headers) { return orig.call(this, code, Object.assign({}, headers, extra)); };
+    }
+    // 防 DNS 重绑定：localhost 之外只允许 --allowed-host 列出的域名
+    const host = (req.headers.host || '').toLowerCase();
+    const port = cfg._listenPort || cfg.port;
+    if (!remoteLib.hostAllowed(host, port, cfg.allowedHosts)) {
+      res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end('{"error":"forbidden"}');
+    }
+    if (remote) {
+      const p = url.pathname;
+      if (req.method === 'GET' && p === '/healthz') return sendJson(res, 200, { ok: true });
+      if (p === '/login' && req.method === 'GET') {
+        if (auth.hasSession(req)) { res.writeHead(302, { Location: '/' }); return res.end(); }
+        return staticLib.serveLogin(res, publicDir);
+      }
+      if (p === '/login' && req.method === 'POST') return auth.handleLogin(req, res);
+      if (p === '/logout' && req.method === 'POST') return auth.handleLogout(req, res);
+      // 接收接口用原始路径（URL 对象会归一化掉 `..`）
+      const rawPath = req.url.split('?')[0];
+      if (rawPath.startsWith('/ingest/')) return ingest(req, res, rawPath);
+      if (!auth.hasSession(req)) {
+        if (p.startsWith('/api/')) return sendJson(res, 401, { error: 'unauthorized' });
+        res.writeHead(302, { Location: '/login' });
+        return res.end();
+      }
+    }
+    if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/events') return handleSse(req, res);
+      return api.handleApi(req, res, url);
+    }
+    staticLib.serveStatic(res, url, publicDir);
   }
 
+  const stopWatch = watchLib.startWatch({
+    watchDir: remote ? cfg.data : runsDir, listEntries, runSig, cache, scanOne, quota, broadcast,
+  });
+
   const server = http.createServer(handler);
-  server.on('listening', () => { cfg._listenPort = server.address().port; startWatch(); });
-  server.on('close', () => { if (watcher) watcher.close(); });
-  return { server, scanOne, listRunIds, broadcast };
+  server.on('listening', () => { cfg._listenPort = server.address().port; });
+  server.on('close', () => stopWatch());
+  return { server, scanOne, listEntries, broadcast, auth };
 }
 
 function main() {
   const args = parseArgs(process.argv);
+  if (args.data && (args.demo || args.runs || args.codexHome)) {
+    console.error('--data（远程数据模式）不能与 --demo / --runs / --codex-home 同时使用。');
+    process.exit(1);
+  }
   const here = __dirname;
   const fix = (p) => path.resolve(here, 'test/fixtures', p);
-  const cfg = {
-    demo: args.demo,
-    runs: args.demo ? fix('runs') : (args.runs || path.join(os.homedir(), '.codex-runs')),
-    codexHome: args.demo ? fix('codex-home') : (args.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), '.codex')),
-    now: args.now,
-  };
+  let cfg;
+  if (args.data) {
+    const missing = [];
+    if (!process.env.DASHBOARD_PASSWORD) missing.push('DASHBOARD_PASSWORD（观看密码）');
+    if (!process.env.DASHBOARD_INGEST_TOKEN) missing.push('DASHBOARD_INGEST_TOKEN（接收令牌）');
+    else if (process.env.DASHBOARD_INGEST_TOKEN.length < 24) missing.push('DASHBOARD_INGEST_TOKEN（长度须 ≥24 字符）');
+    if (missing.length) {
+      console.error('远程模式（--data）缺少必要配置：' + missing.join('；') + '。请在环境文件中设置后重试。');
+      process.exit(1);
+    }
+    cfg = {
+      data: path.resolve(args.data),
+      allowedHosts: (args.allowedHost || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+      password: process.env.DASHBOARD_PASSWORD,
+      token: process.env.DASHBOARD_INGEST_TOKEN,
+    };
+  } else {
+    cfg = {
+      demo: args.demo,
+      runs: args.demo ? fix('runs') : (args.runs || path.join(os.homedir(), '.codex-runs')),
+      codexHome: args.demo ? fix('codex-home') : (args.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), '.codex')),
+      now: args.now,
+    };
+  }
+  cfg.port = args.port;
   const app = createApp(cfg);
   app.server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
@@ -323,8 +288,10 @@ function main() {
     }
     throw err;
   });
-  app.server.listen(args.port, '127.0.0.1', () => {
-    console.log('指挥台已启动 → http://127.0.0.1:' + args.port);
+  const listenHost = args.listenHost || '127.0.0.1';
+  app.server.listen(args.port, listenHost, () => {
+    if (cfg.data) console.log('指挥台（远程模式）已启动 → http://' + listenHost + ':' + args.port + '（经 nginx 反代对外）');
+    else console.log('指挥台已启动 → http://127.0.0.1:' + args.port);
   });
 }
 

@@ -59,13 +59,65 @@ function tokensFromFile(file) {
   return last;
 }
 
+// 远程数据源：DATA/<machine>/codex/<sessionId>.json（reporter 上报的派生数据）。
+// byId 用 Proxy 直接按 sessionId 寻址，与本地索引的用法保持一致（永远返回路径，不存在的交给读取方容错）。
+function buildRemoteCodexIndex(machineDir) {
+  const codexDir = path.join(machineDir, 'codex');
+  return {
+    remote: true,
+    byId: new Proxy({}, {
+      get: (t, id) => (typeof id === 'string' ? path.join(codexDir, id.toLowerCase() + '.json') : undefined),
+    }),
+  };
+}
+
+function tokensFromRemoteFile(file) {
+  try {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const t = j && j.tokens;
+    if (!t || typeof t !== 'object') return null;
+    return { input: t.input || 0, cached: t.cached || 0, output: t.output || 0, total: t.total || 0 };
+  } catch (e) { return null; }
+}
+
+function parseRemoteFeed(file, limit) {
+  const max = limit || 300;
+  let j;
+  try { j = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return []; }
+  const steps = Array.isArray(j.steps) ? j.steps : [];
+  return steps.length > max ? steps.slice(steps.length - max) : steps;
+}
+
+// 多台机器的额度：取 quota.json 修改时间最新的一份
+function readRemoteQuota(dataDir) {
+  let ents;
+  try { ents = fs.readdirSync(dataDir, { withFileTypes: true }); } catch (e) { return null; }
+  let best = null;
+  let bestMtime = -1;
+  for (const ent of ents) {
+    if (!ent.isDirectory() || ent.name.startsWith('.')) continue;
+    const p = path.join(dataDir, ent.name, 'quota.json');
+    try {
+      const st = fs.statSync(p);
+      if (st.mtimeMs > bestMtime) {
+        const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (j && typeof j === 'object' && !Array.isArray(j)) {
+          bestMtime = st.mtimeMs;
+          best = j;
+        }
+      }
+    } catch (e) { /* 坏文件跳过 */ }
+  }
+  return best;
+}
+
 // 多个 sessionId 的 token 相加
 function readTokens(index, sessionIds) {
   const out = { input: 0, cached: 0, output: 0, total: 0 };
   for (const id of sessionIds || []) {
     const f = index.byId[String(id).toLowerCase()];
     if (!f) continue;
-    const t = tokensFromFile(f);
+    const t = index.remote ? tokensFromRemoteFile(f) : tokensFromFile(f);
     if (t) {
       out.input += t.input;
       out.cached += t.cached;
@@ -112,8 +164,9 @@ function stepKind(cmd) {
   return 'exec';
 }
 
-// 执行过程：最多返回最后 limit 步
+// 执行过程：最多返回最后 limit 步。远程派生数据是 .json（本地 rollout 是 .jsonl）
 function parseFeed(file, limit) {
+  if (/\.json$/.test(file)) return parseRemoteFeed(file, limit);
   const max = limit || 300;
   const steps = [];
   for (const line of readLines(file)) {
@@ -135,4 +188,4 @@ function parseFeed(file, limit) {
   return steps.length > max ? steps.slice(steps.length - max) : steps;
 }
 
-module.exports = { buildCodexIndex, readTokens, readQuota, parseFeed, extractCmd, stepKind };
+module.exports = { buildCodexIndex, buildRemoteCodexIndex, readTokens, readQuota, readRemoteQuota, parseFeed, extractCmd, stepKind };

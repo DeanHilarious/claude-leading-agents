@@ -66,6 +66,25 @@ function renderQuota() {
   quotaSlot.innerHTML = quotaWidget(quota);
 }
 
+// ---------- 远程模式：退出按钮 ----------
+// overview 返回 remote:true 时显示；本地模式不渲染，行为不变
+function setRemoteUI(on) {
+  let btn = document.getElementById('logout-btn');
+  if (!on) { if (btn) btn.remove(); return; }
+  if (btn) return;
+  btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'logout-btn';
+  btn.id = 'logout-btn';
+  btn.title = '退出登录';
+  btn.innerHTML = '<svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span>退出</span>';
+  btn.addEventListener('click', async () => {
+    try { await fetch('/logout', { method: 'POST' }); } catch (e) { /* 网络异常也照常跳转 */ }
+    location.href = '/login';
+  });
+  document.getElementById('theme-btn').before(btn);
+}
+
 // ---------- 路由 ----------
 function parseHash() {
   const h = location.hash.replace(/^#/, '');
@@ -82,6 +101,7 @@ async function loadOverview() {
   try {
     const data = await getOverview();
     quota = data.quota; renderQuota();
+    setRemoteUI(!!data.remote);
     overview.reset();
     overview.render(content, data);
   } catch (e) { overview.error(content, e); }
@@ -181,6 +201,7 @@ async function handleChange(runs) {
     if (route.name === 'overview') {
       const data = await getOverview();
       quota = data.quota; renderQuota();
+      setRemoteUI(!!data.remote);
       if (route.name === 'overview') overview.render(content, data);
     } else if (route.name === 'run' && route.id) {
       if (runs.length === 0 || runs.includes(route.id)) {

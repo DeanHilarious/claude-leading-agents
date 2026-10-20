@@ -85,6 +85,10 @@ node dashboard/server.js --demo     # 演示数据
 
 详见 [dashboard/README.md](dashboard/README.md)，界面设计见 [dashboard/DESIGN.md](dashboard/DESIGN.md)。
 
+指挥台也可以部署成「本地上报 → 服务器展示」的远程模式：技能照旧在本机跑，上报器把任务数据脱敏后增量同步到公网服务器，服务器上的看板加密码登录，体验与本地版一致（见 [dashboard/README.md 的「远程模式」](dashboard/README.md#远程模式)）。
+
+部署模板（systemd + nginx + 环境变量示例）在 [dashboard/deploy/](dashboard/deploy/)，逐步指南见 [dashboard/deploy/DEPLOY.md](dashboard/deploy/DEPLOY.md)。
+
 ## 许可
 
 [MIT](LICENSE)

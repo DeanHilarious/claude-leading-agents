@@ -32,6 +32,8 @@
 .agent-dot.d-unknown { background: var(--text-3); }
 .rc-meta.rework { color: var(--rework); }
 .run-card .rc-foot { color: var(--text-3); font-size: 12px; margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+/* 来源机器名（远程模式）：等宽小字 */
+.rc-machine { font-family: var(--font-mono); color: var(--text-3); font-size: 12px; }
 .show-all-btn { width: 100%; text-align: center; color: var(--text-2); padding: 8px; border-radius: 8px; font-size: 13px; }
 .show-all-btn:hover { background: var(--surface-2); color: var(--text); }
 

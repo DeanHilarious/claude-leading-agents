@@ -18,7 +18,9 @@ function head(run) {
     '<span class="m">' + fmtDuration(run.durationMs) + '</span>',
     '<span class="m">' + (run.subtaskCount != null ? run.subtaskCount : '—') + ' 个子任务</span>',
     '<span class="m">' + (run.reworkRounds != null ? run.reworkRounds : '—') + ' 轮返工</span>',
-    '<span class="m">' + (run.tokens != null ? fmtTokensCompact(run.tokens) + ' tok' : '—') + '</span>'
+    '<span class="m">' + (run.tokens != null ? fmtTokensCompact(run.tokens) + ' tok' : '—') + '</span>',
+    // 远程模式：显示来源机器（等宽小字，--text-3 色）
+    run.machine ? '<span class="m rc-machine" title="来源机器">' + escapeHtml(run.machine) + '</span>' : ''
   ].join('');
   return '<div class="page-header">' +
     '<div class="grow"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +

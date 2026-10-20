@@ -107,6 +107,13 @@ a:hover { text-decoration: none; }
   color: var(--text-2); transition: background 160ms var(--ease), color 160ms var(--ease);
 }
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+/* 远程模式退出按钮：与图标按钮同风格，带文字（仅远程模式渲染） */
+.logout-btn {
+  height: 32px; padding: 0 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;
+  color: var(--text-2); font-size: 13px;
+  transition: background 160ms var(--ease), color 160ms var(--ease);
+}
+.logout-btn:hover { background: var(--surface-2); color: var(--text); }
 .content { flex: 1; overflow-y: auto; overflow-x: hidden; }
 .page { max-width: 1440px; margin: 0 auto; padding: 32px 40px 64px; }
 

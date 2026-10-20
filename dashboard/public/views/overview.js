@@ -20,6 +20,8 @@ function taskCard(run) {
     }
   }
   const rework = run.reworkRounds ? '<span class="rc-meta rework">' + icon('rework', 13) + run.reworkRounds + '</span>' : '';
+  // 远程模式：底部元信息行显示来源机器（等宽小字）
+  const machine = run.machine ? '<span>· <span class="rc-machine">' + escapeHtml(run.machine) + '</span></span>' : '';
   return '<a class="run-card" href="#/run/' + encodeURIComponent(run.id) + '">' +
     '<div class="rc-top"><span class="rc-id">' + escapeHtml(run.id) + '</span>' + statusBadge(run.status) + '</div>' +
     '<div class="rc-title" title="' + escapeHtml(run.title || '') + '">' + escapeHtml(run.title || '（无标题）') + '</div>' +
@@ -29,7 +31,7 @@ function taskCard(run) {
     '<div class="rc-foot"><span title="开工时间">' + fmtClock(run.start) + '</span>' +
     '<span>· ' + fmtDuration(run.durationMs) + '</span>' +
     '<span>· ' + fmtTokensCompact(run.tokens) + ' tok</span>' +
-    '<span>· ' + timeAgo(run.updatedAt) + '</span></div>' +
+    '<span>· ' + timeAgo(run.updatedAt) + '</span>' + machine + '</div>' +
     '</a>';
 }
 
