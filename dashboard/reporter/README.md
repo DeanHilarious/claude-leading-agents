@@ -12,7 +12,7 @@ node dashboard/reporter/reporter.js --runs DIR --codex-home DIR --dry-run   # �
 
 全部参数：`--url URL`、`--runs DIR`（默认 `~/.codex-runs`）、`--codex-home DIR`（默认 `~/.codex`）、`--machine NAME`（默认 `os.hostname()`，只保留 `[A-Za-z0-9._-]`）、`--logs head|full|none`（默认 `head`，见下）、`--once`、`--dry-run`、`--interval 30`。
 
-配置优先级：**命令行 > 环境变量（`DASHBOARD_URL`、`DASHBOARD_INGEST_TOKEN`、`REPORTER_MACHINE`）> `~/.claude-leading-agents/reporter.json`**（`{"url","machine","runs","codexHome","logs"}`）。
+配置优先级：**命令行 > 环境变量（`DASHBOARD_URL`、`DASHBOARD_INGEST_TOKEN`、`REPORTER_MACHINE`）> `~/.claude-leading-agents/reporter.json`**（`{"url","machine","runs","codexHome","logs","redactNames"}`）。
 
 - `--url` 必须是 `https://`；仅 `localhost` / `127.0.0.1` / `[::1]` 允许 `http`，方便本地联调。
 - 启动先 `GET /ingest/v1/ping` 校验令牌与连通性，失败中文提示并以退出码 1 退出。
@@ -68,7 +68,7 @@ node dashboard/reporter/reporter.js --once
 
 ### 主目录路径替换
 
-所有上传的文本（含日志文件头、`sum-*.txt`、spec、Codex 派生数据的 steps 等）里，凡出现本机主目录绝对路径——`os.homedir()` 的真实值，以及 `/Users/<当前用户名>`、`/home/<当前用户名>` 形式——一律替换成 `~`（如 `-> /Users/xxx/.codex-runs/…` → `-> ~/.codex-runs/…`）。之后，用户名单独出现（不带路径，如 `@xxx`、`账号 xxx`）替换成 `<user>`；用户名短于 4 个字符时不做这一步，避免误伤常见短词。替换在脱敏之前进行。
+所有上传的文本（含日志文件头、`sum-*.txt`、spec、Codex 派生数据的 steps 等）里，凡出现本机主目录绝对路径——`os.homedir()` 的真实值，以及 `/Users/<当前用户名>`、`/home/<当前用户名>` 形式——一律替换成 `~`（如 `-> /Users/xxx/.codex-runs/…` → `-> ~/.codex-runs/…`）。之后，用户名单独出现（不带路径，如 `@xxx`、`账号 xxx`）替换成 `<user>`；用户名短于 4 个字符时不做这一步，避免误伤常见短词。`reporter.json` 里的 `"redactNames": ["张三", …]`（真名、昵称等）会原样替换成 `<name>`，只写在本机配置里，不进仓库。替换在脱敏之前进行。
 
 ## 跳过什么（及原因）
 

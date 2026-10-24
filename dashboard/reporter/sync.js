@@ -56,7 +56,7 @@ function authHeaders(cfg) {
 function createContext(cfg, client, o) {
   o = o || {};
   const baseRedact = o.redactFn || require('../lib/redact').redact;
-  const scrub = (t) => redactHomePaths(t, { home: cfg.home, user: cfg.user });
+  const scrub = (t) => redactHomePaths(t, { home: cfg.home, user: cfg.user, names: cfg.redactNames });
   return {
     cfg,
     client,

@@ -108,6 +108,12 @@ function loadConfig(argv, o) {
     try { user = os.userInfo().username; } catch (e) { user = ''; }
   }
 
+  // 额外脱敏名单（如真名）：只从本机配置文件读，不进仓库
+  const redactNames = conf.redactNames == null ? [] : conf.redactNames;
+  if (!Array.isArray(redactNames) || redactNames.some((n) => typeof n !== 'string')) {
+    return { err: 'reporter.json 的 "redactNames" 必须是字符串数组' };
+  }
+
   return {
     ok: true,
     url: urlStr || 'http://localhost', // dry-run 无地址时的占位，不会联网
@@ -122,6 +128,7 @@ function loadConfig(argv, o) {
     logs,
     home,
     user,
+    redactNames,
   };
 }
 

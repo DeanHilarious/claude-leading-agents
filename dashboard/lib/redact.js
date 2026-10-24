@@ -69,7 +69,8 @@ function redact(text) {
 // 主目录路径替换：把 home 真实值及 /Users/<user>、/home/<user> 形式的绝对路径前缀替换成 ~。
 // 只在后面不是字母数字下划线时替换（避免 /Users/abc 把 /Users/abc2 的前缀误吞）。
 // 之后用户名单独出现（前后都不是字母数字下划线）替换成 <user>；用户名短于 4 个字符时不处理，
-// 避免误伤常见短词。纯函数、幂等。
+// 避免误伤常见短词。o.names 里的字符串（如真名，来自本机配置）原样替换成 <name>，不看边界
+// （中文没有词边界）。纯函数、幂等。
 function redactHomePaths(text, o) {
   o = o || {};
   const home = o.home != null ? String(o.home) : os.homedir();
@@ -90,6 +91,9 @@ function redactHomePaths(text, o) {
   if (user && user.length >= 4) {
     const esc = user.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp('(?<![A-Za-z0-9_])' + esc + '(?![A-Za-z0-9_])', 'g'), '<user>');
+  }
+  for (const n of o.names || []) {
+    if (typeof n === 'string' && n.length >= 2) out = out.split(n).join('<name>');
   }
   return out;
 }

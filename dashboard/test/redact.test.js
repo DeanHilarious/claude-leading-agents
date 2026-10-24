@@ -132,3 +132,11 @@ test('性能：2MB 文本 <200ms', () => {
   assert.ok(r.count > 1000);
   assert.ok(ms < 200, '2MB 脱敏耗时 ' + ms + 'ms，应 <200ms');
 });
+
+test('redactHomePaths：names 名单原样替换成 <name>，幂等', () => {
+  const { redactHomePaths } = require('../lib/redact');
+  const o = { home: '/Users/fakeuser', user: 'fakeuser', names: ['张三', 'Zhang San', 'x'] };
+  const a = redactHomePaths('提到张三和Zhang San；x 太短不处理', o);
+  assert.equal(a, '提到<name>和<name>；x 太短不处理');
+  assert.equal(redactHomePaths(a, o), a);
+});
