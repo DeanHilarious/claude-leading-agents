@@ -29,7 +29,7 @@ async function run(argv, o) {
   const err = o.err || ((s) => console.error(s));
   const env = o.env || process.env;
   const home = o.home;
-  const cfg = loadConfig(argv, { env, home });
+  const cfg = loadConfig(argv, { env, home, user: o.user });
   if (cfg.err) {
     err('配置错误：' + cfg.err);
     return 1;

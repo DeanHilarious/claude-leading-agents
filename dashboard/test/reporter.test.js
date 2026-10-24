@@ -89,7 +89,7 @@ test('首次全量上传：白名单文件 + codex 派生 + quota，跳过 cb-*.
   // quota
   assert.equal(puts(s.requests, '/ingest/v1/quota/' + MACHINE).length, 1);
   assert.ok(out.some((l) => l.includes('↑ todo-app/spec-api.md')));
-  assert.ok(out.some((l) => l.includes('完成：上传 14 个文件，跳过 1 个，失败 0 个')), '结尾汇总行：' + out.join('|'));
+  assert.ok(out.some((l) => l.includes('完成：上传 14 个文件（其中日志 3 个，仅文件头 3 个），跳过 1 个，失败 0 个')), '结尾汇总行：' + out.join('|'));
 });
 
 test('二次同步：未变化不重复上传；文件变化只传变化的', async (t) => {

@@ -4,9 +4,10 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { classify, readFileForUpload } = require('./filter');
+const { classify, readFileForUpload, readLogHead, extractLogHead, isLogName } = require('./filter');
 const { sessionIdsOfRun, buildPayload, quotaPayload, fileSig } = require('./codexdata');
 const codex = require('../lib/codex');
+const { redactHomePaths } = require('../lib/redact');
 
 function sha256(s) { return crypto.createHash('sha256').update(s, 'utf8').digest('hex'); }
 
@@ -49,13 +50,17 @@ function authHeaders(cfg) {
   return { Authorization: 'Bearer ' + cfg.token };
 }
 
-// 创建同步上下文（redactFn 可注入，便于测试不依赖脱敏实现细节）
+// 创建同步上下文（redactFn 可注入，便于测试不依赖脱敏实现细节）。
+// 最终 redactFn = 注入/默认脱敏 ∘ 主目录路径替换：所有上传文本（含 codex steps）先做
+// 主目录路径 → ~ 的替换，再走脱敏。
 function createContext(cfg, client, o) {
   o = o || {};
+  const baseRedact = o.redactFn || require('../lib/redact').redact;
+  const scrub = (t) => redactHomePaths(t, { home: cfg.home, user: cfg.user });
   return {
     cfg,
     client,
-    redactFn: o.redactFn || require('../lib/redact').redact,
+    redactFn: (t) => baseRedact(scrub(t)),
     out: o.out || ((s) => console.log(s)),
     state: cfg.dryRun ? emptyState() : loadState(cfg.stateFile), // dry-run 不读不写状态，始终列出全部
     indexRebuilt: false,
@@ -96,7 +101,7 @@ async function syncOnce(ctx) {
     }
   }
 
-  const stats = { uploaded: 0, skipped: 0, redactions: 0 };
+  const stats = { uploaded: 0, logs: 0, headLogs: 0, skipped: 0, redactions: 0 };
   for (const run of runIds) {
     const runDir = path.join(cfg.runsDir, run);
     if (fs.existsSync(path.join(runDir, '.no-upload'))) {
@@ -104,6 +109,8 @@ async function syncOnce(ctx) {
       out('- ' + run + '（.no-upload，整个任务跳过）');
       continue;
     }
+    // 按任务例外：任务文件夹里有 .upload-logs 时，该任务的日志按 full 处理（仍脱敏）
+    const logsFull = fs.existsSync(path.join(runDir, '.upload-logs'));
     for (const name of listFiles(runDir)) {
       const rel = run + '/' + name;
       const c = classify(name);
@@ -112,16 +119,27 @@ async function syncOnce(ctx) {
         if (dry) out('- ' + rel + '（' + c.reason + '）');
         continue;
       }
+      // 日志三档：head（默认，仅文件头）/ full（全文）/ none（不上传）；.upload-logs 强制 full
+      const isLog = isLogName(name);
+      const logMode = isLog ? (logsFull ? 'full' : cfg.logs) : null;
+      if (logMode === 'none') {
+        stats.skipped++;
+        if (dry) out('- ' + rel + '（logs=none，日志不上传）');
+        continue;
+      }
       let st;
       try { st = fs.statSync(path.join(runDir, name)); } catch (e) { continue; }
       try {
-        const r = readFileForUpload(path.join(runDir, name));
+        const r = logMode === 'head'
+          ? readLogHead(path.join(runDir, name))
+          : readFileForUpload(path.join(runDir, name));
         if (!r.ok) {
           stats.skipped++;
           if (dry) out('- ' + rel + '（' + r.reason + '）');
           continue;
         }
-        const red = redactFn(r.text);
+        // head 模式先取文件头（含 workdir 隐藏与尾行说明），再统一做主目录替换 + 脱敏
+        const red = redactFn(logMode === 'head' ? extractLogHead(r.text) : r.text);
         const hash = sha256(red.text);
         if (!dry && state.files[rel] === hash) { stats.skipped++; continue; } // 未变化
         if (!dry) {
@@ -136,8 +154,10 @@ async function syncOnce(ctx) {
             body: red.text,
           });
         }
-        out('↑ ' + rel + '（脱敏 ' + red.count + ' 处' + (r.truncated ? '，超 2MB 已取末尾' : '') + '）');
+        out('↑ ' + rel + '（' + (logMode === 'head' ? '仅文件头，脱敏 ' : '脱敏 ') + red.count + ' 处' + (r.truncated ? '，超 2MB 已取末尾' : '') + '）');
         stats.uploaded++;
+        if (isLog) stats.logs++;
+        if (logMode === 'head') stats.headLogs++;
         stats.redactions += red.count;
         state.files[rel] = hash;
         state.runs[run] = true;
@@ -203,7 +223,7 @@ async function syncOnce(ctx) {
     try { saveState(cfg.stateFile, state); }
     catch (e) { errors.push('保存状态失败：' + e.message); }
   }
-  out('完成：上传 ' + stats.uploaded + ' 个文件，跳过 ' + stats.skipped + ' 个，失败 ' + errors.length + ' 个，脱敏共 ' + stats.redactions + ' 处');
+  out('完成：上传 ' + stats.uploaded + ' 个文件（其中日志 ' + stats.logs + ' 个，仅文件头 ' + stats.headLogs + ' 个），跳过 ' + stats.skipped + ' 个，失败 ' + errors.length + ' 个，脱敏共 ' + stats.redactions + ' 处');
   return errors;
 }
 

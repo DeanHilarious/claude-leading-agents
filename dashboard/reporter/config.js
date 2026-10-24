@@ -7,6 +7,7 @@ const os = require('os');
 const { URL } = require('url');
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+const LOG_MODES = new Set(['head', 'full', 'none']);
 
 // 解析命令行参数（数组形式，便于测试注入）
 function parseArgs(argv) {
@@ -18,6 +19,7 @@ function parseArgs(argv) {
     else if (a === '--codex-home') out.codexHome = argv[++i];
     else if (a === '--machine') out.machine = argv[++i];
     else if (a === '--interval') out.interval = Number(argv[++i]);
+    else if (a === '--logs') out.logs = argv[++i];
     else if (a === '--once') out.once = true;
     else if (a === '--dry-run') out.dryRun = true;
     // 以下为测试/高级用途注入点，不在 README 的常规用法里
@@ -94,6 +96,18 @@ function loadConfig(argv, o) {
   const interval = args.interval;
   if (!Number.isFinite(interval) || interval < 1) return { err: '--interval 必须是 ≥1 的秒数' };
 
+  // 日志上传模式：head（默认，仅文件头）/ full（全文）/ none（不上传）。命令行优先于配置文件。
+  const logs = args.logs != null ? args.logs : (conf.logs != null ? conf.logs : 'head');
+  if (!LOG_MODES.has(logs)) {
+    return { err: '日志模式必须是 head / full / none（当前：' + logs + '）' };
+  }
+
+  // 主目录路径脱敏用的本机信息（可注入，便于测试）
+  let user = o.user;
+  if (user == null || user === '') {
+    try { user = os.userInfo().username; } catch (e) { user = ''; }
+  }
+
   return {
     ok: true,
     url: urlStr || 'http://localhost', // dry-run 无地址时的占位，不会联网
@@ -105,6 +119,9 @@ function loadConfig(argv, o) {
     dryRun,
     once: !!args.once,
     interval,
+    logs,
+    home,
+    user,
   };
 }
 

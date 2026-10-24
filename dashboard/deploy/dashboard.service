@@ -1,5 +1,7 @@
 # claude-leading-agents 指挥台（远程模式）systemd 单元
-# 安装：cp dashboard.service /etc/systemd/system/ && systemctl daemon-reload && systemctl enable --now dashboard
+# 安装：cp dashboard.service /etc/systemd/system/claude-leading-agents-dashboard.service
+#       && systemctl daemon-reload && systemctl enable --now claude-leading-agents-dashboard
+# 服务名用 claude-leading-agents-dashboard，避免与服务器上已有的 dashboard 服务重名。
 [Unit]
 Description=claude-leading-agents dashboard (remote mode)
 After=network.target
@@ -8,7 +10,9 @@ After=network.target
 User=dashboard
 Group=dashboard
 EnvironmentFile=/etc/claude-leading-agents/dashboard.env
-ExecStart=/usr/local/bin/node /opt/claude-leading-agents/dashboard/server.js --data /var/lib/claude-leading-agents --allowed-host ${DASHBOARD_HOST} --port 4177
+# node 统一复制到 /opt/claude-leading-agents/bin/node（见 DEPLOY.md 第 2 步）：
+# 服务以 dashboard 用户 + ProtectHome=true 运行，装在 /root/.nvm 等主目录下的 node 无法访问。
+ExecStart=/opt/claude-leading-agents/bin/node /opt/claude-leading-agents/dashboard/server.js --data /var/lib/claude-leading-agents --allowed-host ${DASHBOARD_HOST} --port 4177
 Restart=on-failure
 RestartSec=2
 

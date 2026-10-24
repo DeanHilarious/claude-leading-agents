@@ -1,52 +1,66 @@
-# claude-leading-agents 指挥台 nginx 反代示例
+# claude-leading-agents 指挥台 nginx 配置示例（整文件）
+# 用法：复制为 /etc/nginx/conf.d/claude-leading-agents.conf（conf.d 在 http {} 内被 include）。
 # 使用前替换：dashboard.example.com 与证书路径。
-# 注意：本文件只是「新增一个 server 块」，不要改动服务器上已有的其他站点；
-#       任何修改先 nginx -t 验证再 reload。
+# 注意：不要改动服务器上已有的其他站点；任何修改先 nginx -t 验证再 reload。
 #
-# 限流定义放在 http {} 级别（只加一次，勿与已有定义重名）
-# limit_req_zone $binary_remote_addr zone=cla_login:10m rate=10r/m;
-# limit_req_zone $binary_remote_addr zone=cla_ingest:10m rate=600r/m;
+# 限流定义（写在文件顶部即可，conf.d 在 http {} 内；若已有同名 zone 则改名复用，勿重复定义）
+limit_req_zone $binary_remote_addr zone=cla_login:10m rate=10r/m;
+limit_req_zone $binary_remote_addr zone=cla_ingest:10m rate=600r/m;
 
+# 80 端口：先只应答 ACME 验证（拿证书前的第一阶段配置，见 DEPLOY.md 第 6 步）；
+# 拿到证书、443 启用后，此块保留用于证书续期（webroot /var/www/acme）。
 server {
     listen 80;
     server_name dashboard.example.com;
-    return 301 https://$host$request_uri;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/acme;
+    }
+
+    # 第一阶段（只有 80 站点）先注释掉这个跳转，签发证书后再放开：
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 
+# 443 站点：拿到证书后再启用（第一阶段整块注释掉，否则 nginx -t 会因证书不存在而失败）
 server {
     listen 443 ssl;
     http2 on;
     server_name dashboard.example.com;
 
-    # 证书路径（占位，按实际替换）
+    # 证书路径（占位，按实际替换；acme.sh --install-cert 的目标路径也写这里）
     ssl_certificate     /etc/letsencrypt/live/dashboard.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/dashboard.example.com/privkey.pem;
+
+    # 限流触发时返回 429
+    limit_req_status 429;
 
     # 上报单文件上限 2MB，留些头部余量
     client_max_body_size 3m;
 
+    # 反代公共设置（SSE 必需：关闭缓冲、拉长读超时）直接写在 server 级，
+    # 各 location 只写 proxy_pass，不依赖外部 proxy_params 文件。
+    proxy_pass http://127.0.0.1:4177;
+    proxy_http_version 1.1;
+    proxy_set_header Connection '';
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
     location = /login {
         limit_req zone=cla_login burst=20 nodelay;
-        include /etc/nginx/claude-leading-agents/proxy_params;
+        proxy_pass http://127.0.0.1:4177;
     }
 
     location /ingest/ {
         limit_req zone=cla_ingest burst=600 nodelay;
-        include /etc/nginx/claude-leading-agents/proxy_params;
+        proxy_pass http://127.0.0.1:4177;
     }
 
     location / {
-        include /etc/nginx/claude-leading-agents/proxy_params;
+        proxy_pass http://127.0.0.1:4177;
     }
 }
-
-# /etc/nginx/claude-leading-agents/proxy_params 内容：
-#   proxy_pass http://127.0.0.1:4177;
-#   proxy_http_version 1.1;
-#   proxy_set_header Connection '';
-#   # SSE 必需：关闭缓冲、拉长读超时
-#   proxy_buffering off;
-#   proxy_read_timeout 3600s;
-#   proxy_set_header Host $host;
-#   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-#   proxy_set_header X-Forwarded-Proto $scheme;
